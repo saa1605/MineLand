@@ -2,13 +2,21 @@
 associative memory
 '''
 
-from .memory_library import MemoryNode
-from ..prompt_template import load_prompt
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+import os
+
 from langchain.prompts import SystemMessagePromptTemplate
+from langchain_community.vectorstores.chroma import Chroma
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+
+from ..prompt_template import load_prompt
+from .long_term_planner import LongtermPlanner
+from .memory_library import MemoryNode
+from .skill_manager import SkillManager
+from .viewer import Viewer
+
 
 class ShorttermPlan(BaseModel):
     short_term_plan: str = Field(description="short_term_plan")
@@ -21,14 +29,25 @@ class SpecialEventInfo(BaseModel):
 
 class AssociativeMemory:
     def __init__(self,
-                 model_name = 'gpt-4-turbo',
+                 deployment_name = 'gpt-4o-v2',
+                 azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT"),
+                 api_version = "2024-08-01-preview",
                  max_tokens = 1024,
                  temperature = 0,
                  save_path = "./save",
                  personality = "None",
                  vision = True,):
+        print(f"\n{'='*50}")
+        print("Initializing Associative Memory...")
+        print(f"Model: {deployment_name}")
+        print(f"Endpoint: {azure_endpoint}")
+        print(f"API Version: {api_version}")
+        
         self.personality = personality
         self.vision = vision
+        self.save_path = save_path
+        
+        # Initialize memory structures
         self.environment = set()
         self.events = set()
         self.chat = set()
@@ -36,27 +55,40 @@ class AssociativeMemory:
         self.long_term_plan = None
         self.last_short_term_plan = None
         self.short_term_plan = None
-        self.model_name = model_name
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.save_path = save_path
 
-        
-        model = ChatOpenAI(
-            model=model_name,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        parser = JsonOutputParser(pydantic_object=ShorttermPlan)
-        self.chain = model | parser
+        try:
+            # Initialize main model for short-term planning
+            model = AzureChatOpenAI(
+                deployment_name=deployment_name,
+                azure_endpoint=azure_endpoint,
+                api_version=api_version,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            parser = JsonOutputParser(pydantic_object=ShorttermPlan)
+            self.chain = model | parser
+            print("✅ Successfully initialized main planning model")
+        except Exception as e:
+            print(f"❌ Failed to initialize main planning model: {str(e)}")
+            raise
 
-        model = ChatOpenAI(
-            model=model_name,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        parser = JsonOutputParser(pydantic_object=SpecialEventInfo)
-        self.special_event_chain = model | parser
+        try:
+            # Initialize special events model
+            model = AzureChatOpenAI(
+                deployment_name=deployment_name,
+                azure_endpoint=azure_endpoint,
+                api_version=api_version,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            parser = JsonOutputParser(pydantic_object=SpecialEventInfo)
+            self.special_event_chain = model | parser
+            print("✅ Successfully initialized special events model")
+        except Exception as e:
+            print(f"❌ Failed to initialize special events model: {str(e)}")
+            raise
+
+        print(f"{'='*50}\n")
 
     def render_system_message(self):
         prompt = load_prompt("generate_short_term_plan")
@@ -173,40 +205,39 @@ class AssociativeMemory:
 
 
     def plan(self, obs, task_info, retrieved, verbose = False):
-        
-        # 1. Store the retrieved information
-        self.last_short_term_plan = retrieved["short_term_plan"]
-        self.long_term_plan = retrieved["long_term_plan"]
-        
-        for event_desc, rel_ctx in retrieved.items():
-            if event_desc not in ["long_term_plan", "short_term_plan", "recent_chat"]:
-                for ctx_type, ctx in rel_ctx.items():
-                    if ctx_type == "environment":
-                        self.environment.update(ctx)
-                    if ctx_type == "event":
-                        self.events.update(ctx)
-                    if ctx_type == "chat":
-                        self.chat.update(ctx)
-                    # if ctx_type == "skill":
-                    #     self.skills.update(ctx)
+        print("\nGenerating short-term plan...")
+        try:
+            # Store retrieved information
+            self.last_short_term_plan = retrieved["short_term_plan"]
+            self.long_term_plan = retrieved["long_term_plan"]
+            
+            for event_desc, rel_ctx in retrieved.items():
+                if event_desc not in ["long_term_plan", "short_term_plan", "recent_chat"]:
+                    for ctx_type, ctx in rel_ctx.items():
+                        if ctx_type == "environment":
+                            self.environment.update(ctx)
+                        if ctx_type == "event":
+                            self.events.update(ctx)
+                        if ctx_type == "chat":
+                            self.chat.update(ctx)
 
-        # 2. Short term plan
-        system_message = self.render_system_message()
-        human_message = self.render_human_message(obs, task_info, retrieved["recent_chat"])
+            # Generate short-term plan
+            system_message = self.render_system_message()
+            human_message = self.render_human_message(obs, task_info, retrieved["recent_chat"])
+            messages = [system_message, human_message]
+            self.short_term_plan = self.chain.invoke(messages)
 
-        # print("human_message: ", human_message)
+            if verbose:
+                print("✅ Successfully generated short-term plan")
+                print(f"\033[31m****Short-term planner****\n{self.short_term_plan}\033[0m")
+                with open(f"{self.save_path}/log.txt", "a+") as f:
+                    f.write(f"****Short-term planner****\n{self.short_term_plan}\n")
 
-        messages = [system_message, human_message]
+            return self.short_term_plan
 
-        self.short_term_plan = self.chain.invoke(messages)
-
-        if verbose:
-            # human_message.pretty_print()
-            print(f"\033[31m****Short-term planner****\n{self.short_term_plan}\033[0m")
-            with open(f"{self.save_path}/log.txt", "a+") as f:
-                f.write(f"****Short-term planner****\n{self.short_term_plan}\n")
-
-        return self.short_term_plan
+        except Exception as e:
+            print(f"❌ Failed to generate short-term plan: {str(e)}")
+            raise
     
     def reflect(self):
         pass
@@ -291,14 +322,18 @@ class AssociativeMemory:
 
 
     def special_event_check(self, obs, task_info, code_info):
-        system_message_prompt = load_prompt("special_event_check")
-        system_message = SystemMessage(content=system_message_prompt)
-        human_message = self.render_special_event_human_message(obs, task_info, code_info)
-
-        messages = [system_message, human_message]
-
-        special_event_info = self.special_event_chain.invoke(messages)
-
-        return special_event_info
+        print("\nChecking for special events...")
+        try:
+            system_message_prompt = load_prompt("special_event_check")
+            system_message = SystemMessage(content=system_message_prompt)
+            human_message = self.render_special_event_human_message(obs, task_info, code_info)
+            messages = [system_message, human_message]
+            special_event_info = self.special_event_chain.invoke(messages)
+            print("✅ Successfully checked special events")
+            print(f"\033[31m****Special Event Check****\n{special_event_info}\033[0m")
+            return special_event_info
+        except Exception as e:
+            print(f"❌ Failed to check special events: {str(e)}")
+            raise
         
         

@@ -24,8 +24,26 @@
     "bypassesPlayerLimit": false
   },
   {
+    "uuid": "56cfbf49-bfc1-3775-a7ef-454f4e5090a1",
+    "name": "GPT4oBot",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "1a1aceeb-3885-37f3-aa91-39c4aa748f53",
+    "name": "gpt4obot",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
     "uuid": "755bc336-78f6-334b-a530-63f78325cfa2",
     "name": "MineflayerBot7",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "7b15734e-ec7f-3426-8843-bd7dee0af1e6",
+    "name": "GPT4oMiniBot",
     "level": 4,
     "bypassesPlayerLimit": false
   },
@@ -102,6 +120,12 @@
     "bypassesPlayerLimit": false
   },
   {
+    "uuid": "85bbcb4d-43da-35a7-9001-9c8965d1f33a",
+    "name": "gpt4ominibot",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
     "uuid": "5f5ae495-174b-35c1-83b2-36a9984de41f",
     "name": "MineflayerBot8",
     "level": 4,
@@ -122,6 +146,12 @@
   {
     "uuid": "05f673da-66b5-37e3-b03b-09bbf434403e",
     "name": "bot1",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "72d16d67-c9cf-395c-adbe-f57aff373383",
+    "name": "alexgpt4omini",
     "level": 4,
     "bypassesPlayerLimit": false
   },
@@ -156,6 +186,12 @@
     "bypassesPlayerLimit": false
   },
   {
+    "uuid": "aa8131dd-67fc-339a-aa9d-09906bee4a62",
+    "name": "alexgpt4o",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
     "uuid": "b951d13e-beec-345a-9742-6bed9288484e",
     "name": "MineflayerBot18",
     "level": 4,
@@ -170,6 +206,12 @@
   {
     "uuid": "d7910753-a026-3a92-b620-c47e228c43a9",
     "name": "MineflayerBot25",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "0da0476a-8d34-3205-9771-11e65b5a6606",
+    "name": "AlexGPT4oMini",
     "level": 4,
     "bypassesPlayerLimit": false
   },
@@ -254,6 +296,12 @@
   {
     "uuid": "0aec32bc-648c-3feb-82df-c75a5d124dd7",
     "name": "{\u0027alice\u0027}",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "b2be4460-4341-30b0-bfe5-5c2e2c250ddb",
+    "name": "AlexGPT4o",
     "level": 4,
     "bypassesPlayerLimit": false
   },

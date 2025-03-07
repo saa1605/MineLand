@@ -1,126 +1,139 @@
-<div align="center">
-    <h1> MineLand </h1>
-    <h4> Simulating Large-Scale Multi-Agent Interactions with Limited Multimodal Senses and Physical Needs </h4>
-</div>
+# MineLand Budget-Aware Multi-Agent Orchestrator
 
+This project implements a budget-aware orchestrator system for the MineLand environment that intelligently manages multiple AI agents with different capabilities and costs to complete Minecraft survival tasks.
 
-![illustration-whole-system](./docs/pics/illustration-whole-system-1080p.png)
+## Overview
 
-**MineLand** is a multi-agent Minecraft simulator with large-scale interactions, limited multimodal senses and physical needs, all contribute to more ecological and nuanced collective behaviors. MineLand simulator supports up to 48 agents with limited visual, auditory, and environmental awareness, forcing them to actively communicate and collaborate to fulfill physical needs like food and resources. This fosters dynamic and valid multi-agent interactions. We also designed an AI Agent based on MineLand - **Alex**, inspired by multitasking theory, enabling agents to handle intricate coordination and scheduling.
+The orchestrator system includes:
 
-You can check [our paper](https://arxiv.org/abs/2403.19267) for further understanding, and MineLand and Alex code is provided in this repo.
+1. **Two LLM Agents**: 
+   - **GPT-4o Agent**: A more capable but expensive agent
+   - **GPT-4o-mini Agent**: A less capable but cheaper agent
 
-# 0. Contents
+2. **Budget-Aware Orchestrator**:
+   - Dynamically decides which agent to use based on:
+     - Current situation complexity
+     - Remaining budget
+     - Task progress
 
-- [0. Contents](#0-contents)
-- [1. Installation](#1-installation)
-  - [1.1 Prerequisites](#11-prerequisites)
-  - [1.2 Installation](#12-installation)
-  - [1.3 Verification](#13-verification)
-- [2. Quick Start](#2-quick-start)
-- [3. Our Paper](#3-our-paper)
+3. **Decision Metrics**:
+   - Situation assessment (health, food, combat, time of day)
+   - Budget allocation strategies
+   - Cost tracking and logging
 
-# 1. Installation
+## Requirements
 
-You can refer to the [Installation Docs](./docs/installation.md) and [Q&A](./docs/q&a.md) for more detailed installation guidelines.
+- Python 3.10+
+- MineLand environment
+- Azure OpenAI API access
+- OpenAI Python SDK
+- Other dependencies listed in `requirements.txt`
 
-We provide two methods to install MineLand: `Direct Install` and `Docker Image`.
+## Installation
 
-## 1.1 Direct Install
+1. Install MineLand environment following [MineLand installation instructions](https://github.com/cocacola-lab/MineLand).
 
-### Prerequisites
-
-MineLand requires Python 3.11, Node.js 18.18.0 and Java 17
-
-### Installation
-
-```bash
-git clone git@github.com:cocacola-lab/MineLand.git
-cd MineLand
-
-conda create -n mineland python=3.11
-conda activate mineland
-pip install -e .
-
-cd mineland/sim/mineflayer
-nvm install v18.18.0
-nvm use v18.18.0
-npm ci
-# If you use pnpm, you can use `pnpm install` instead of `npm ci`
-# npm ci will install the dependencies from the package-lock.json file, while npm install will resolve the dependencies from the package.json file.
-
-cd ../../..
-# Back to the root directory of MineLand
-```
-
-### Verification
+2. Install additional dependencies:
 
 ```bash
-cd scripts
-python validate_install_simulator.py
+pip install openai numpy opencv-python
 ```
 
-You will see `Validation passed! The simulator is installed correctly.`, if MineLand simulator installed properly.
-
-## 1.2 Docker Image
+3. Set up your Azure OpenAI API key:
 
 ```bash
-# Pull image
-docker pull yxhxianyu/mineland
-
-# Initialize a container based on image
-docker run -it -p 25565:25565 --name mineland yxhxianyu/mineland /bin/bash
-
-# Xvfb needs to be launched every time you start container
-Xvfb :1 -screen 0 1024x768x24 </dev/null &
-
-# Start MineLand
-cd /root/MineLand
-python ./scripts/validate_install_simulator.py
+export AZURE_OPENAI_API_KEY="your-api-key-here"
 ```
 
-Detailed instructions in [Installation Docs - Docker](https://github.com/cocacola-lab/MineLand/blob/main/docs/installation.md#2-docker)
+## Usage
 
-# 2. Quick Start
+### Basic Usage
 
-MineLand provides a set of [Gym-style](https://www.gymlibrary.dev/) interfaces, similar to other simulators like [MineDojo](https://github.com/MineDojo/MineDojo). The following is a minimal example code.
+Run the orchestrator with default settings:
 
-```python
-import mineland
-
-mland = mineland.make(
-    task_id="survival_0.01_days",
-    agents_count = 2,
-)
-
-obs = mland.reset()
-
-for i in range(5000):
-    act = mineland.Action.no_op(len(obs))
-    obs, code_info, event, done, task_info = mland.step(action=act)
-    if done: break
-
-mland.close()
+```bash
+python run_orchestrator.py
 ```
 
-You can refer to [MineLand Docs](./docs/api.md) or the code under the `./scripts` directory for development.
+### Advanced Usage
 
-MineLand does NOT have a minecraft game client for higher efficiency. You can obtain the current visual information of the agents from `obs`, or connect to the server using a vanilla Minecraft 1.19 client. The server operates locally with the default port, which means you can directly connect to `localhost:25565` in the game to enter the server.
+Customize the orchestrator run with command-line arguments:
 
-Environment Preview
-![environment_preview.png](./docs/pics/environment_preview.png)
-
-# 3. Citation
-
-Our paper is available on [Arxiv](https://arxiv.org/abs/2403.19267).
-
-```bibtex
-@misc{yu2024mineland,
-      title={MineLand: Simulating Large-Scale Multi-Agent Interactions with Limited Multimodal Senses and Physical Needs}, 
-      author={Xianhao Yu and Jiaqi Fu and Renjia Deng and Wenjuan Han},
-      year={2024},
-      eprint={2403.19267},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
-}
+```bash
+python run_orchestrator.py --task survival_1_days --budget 2.0 --max-steps 10000
 ```
+
+Available arguments:
+
+- `--task`: MineLand survival task ID (e.g., "survival_0.5_days")
+- `--budget`: Total budget in dollars (e.g., 1.0 for $1.00)
+- `--api-key`: Azure OpenAI API key (if not set in environment)
+- `--max-steps`: Maximum number of steps to run
+- `--save-dir`: Directory to save results
+
+## Architecture
+
+### BaseAgent
+
+Abstract base class that defines the interface for all agent types:
+- Observation processing
+- Action generation
+- Cost tracking
+
+### GPT4oAgent
+
+High-capability agent using GPT-4o model:
+- Detailed observation processing
+- Complex planning and reasoning
+- Higher cost per token
+
+### GPT4oMiniAgent
+
+More economical agent using GPT-4o-mini model:
+- Simplified observation processing
+- Basic planning and reasoning
+- Lower cost per token
+
+### Orchestrator
+
+Central controller that:
+- Assesses the current situation
+- Chooses appropriate agent based on complexity and budget
+- Tracks costs and manages budget
+- Logs decisions and metrics
+
+## Results and Logging
+
+The system generates comprehensive logs and metrics:
+
+- **Frame Captures**: Screenshots from agent perspectives
+- **Decision Logs**: Records of which agent was used and why
+- **Budget Tracking**: Detailed cost accounting
+- **Performance Metrics**: Steps, success rates, agent usage
+- **Agent Prompts/Responses**: Input/output for each agent
+
+## Examples
+
+Example decision making process:
+
+1. **Critical Health Situation**:
+   - High complexity score (0.7)
+   - Sufficient budget remaining (70%)
+   - Decision: Use GPT-4o for sophisticated planning
+
+2. **Routine Resource Gathering**:
+   - Low complexity score (0.2)
+   - Decision: Use cheaper GPT-4o-mini to conserve budget
+
+3. **Low Budget Situation**:
+   - Remaining budget below threshold
+   - Decision: Force use of GPT-4o-mini regardless of complexity
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [MineLand Project](https://github.com/cocacola-lab/MineLand)
+- Azure OpenAI API

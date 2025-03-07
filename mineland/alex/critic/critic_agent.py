@@ -1,11 +1,15 @@
 '''
 Critic Agent
 '''
-from ..prompt_template import load_prompt
+import os
+
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_openai import ChatOpenAI
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_openai import AzureChatOpenAI
+
+from ..prompt_template import load_prompt
+
 
 class CriticInfo(BaseModel):
     reasoning: str = Field(description="reasoning")
@@ -22,23 +26,44 @@ class CriticAgent():
     def __init__(self, 
                  FAILED_TIMES_LIMIT = 2, 
                  mode = 'auto',
-                 model_name = 'gpt-4-vision-preview',
+                 deployment_name = 'gpt-4o-v2',
+                 azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT"),
+                 api_version = "2024-08-01-preview",
                  max_tokens = 256,
                  temperature = 0,
                  save_path = "./save",
                  vision = True,):
+        print(f"\n{'='*50}")
+        print("Initializing Critic Agent...")
+        print(f"Model: {deployment_name}")
+        print(f"Endpoint: {azure_endpoint}")
+        print(f"API Version: {api_version}")
+        print(f"Mode: {mode}")
+        
         self.FAILED_TIMES_LIMIT = FAILED_TIMES_LIMIT
         self.plan_failed_count = 0
         self.mode = mode
         self.vision = vision
-        model = ChatOpenAI(model=model_name, 
-                           max_tokens=max_tokens,
-                           temperature=temperature,)
-        parser = JsonOutputParser(pydantic_object=CriticInfo)
-        self.chain = model | parser
-        assert self.mode in ['auto', 'manual']
-
         self.save_path = save_path
+        
+        assert self.mode in ['auto', 'manual'], f"Invalid mode: {mode}. Must be 'auto' or 'manual'"
+
+        try:
+            model = AzureChatOpenAI(
+                deployment_name=deployment_name,
+                azure_endpoint=azure_endpoint,
+                api_version=api_version,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            parser = JsonOutputParser(pydantic_object=CriticInfo)
+            self.chain = model | parser
+            print("✅ Successfully initialized Critic Agent")
+        except Exception as e:
+            print(f"❌ Failed to initialize Critic Agent: {str(e)}")
+            raise
+
+        print(f"{'='*50}\n")
 
     def human_check_task_success(self):
         confirmed = False
@@ -79,75 +104,103 @@ class CriticAgent():
         return human_message
 
     def ai_check_task_success(self, messages, max_retries=5, verbose=False):
+        """
+        Use AI to check if the task was successful.
+        
+        Args:
+            messages: Messages to send to the AI
+            max_retries: Maximum number of retries
+            verbose: Whether to print detailed logs
+            
+        Returns:
+            success: Whether the task was successful
+            critique: Critique message
+        """
         if max_retries == 0:
-            print(
-                "\033[31mFailed to parse Critic Agent response. Consider updating your prompt.\033[0m"
-            )
-            return False, ""
+            print("❌ Maximum retries reached for parsing critic response")
+            return False, "Failed to parse critic response after maximum retries"
 
         if messages[1] is None:
             return False, ""
 
         try:
             critic_info = self.chain.invoke(messages)
-            # print(critic_info)
             if verbose:
                 print(f"\033[31m****Critic Agent****\n{critic_info}\033[0m")
                 with open(f"{self.save_path}/log.txt", "a+") as f:
                     f.write(f"****Critic Agent****\n{critic_info}\n")
-            assert critic_info["success"] in [True, False]
-            assert critic_info["critique"] != ""
+            
+            # Validate response
+            assert critic_info["success"] in [True, False], "Invalid success value"
+            assert critic_info["critique"] != "", "Empty critique"
+            
             return critic_info["success"], critic_info["critique"]
+            
         except Exception as e:
-            print(f"\033[31mError parsing critic response: {e} Trying again!\033[0m")
+            print(f"⚠️ Error parsing critic response: {e} Retrying...")
             return self.ai_check_task_success(
                 messages=messages,
                 max_retries=max_retries - 1,
+                verbose=verbose
             )
-
 
     def critic(self, short_term_plan, obs, max_retries=5, verbose=False):
         '''
-        params:
-            short_term_plan: short term plan
-            obs: observation
-            max_retries: max retries
-        return:
-            next_step: next step
-            success: success
-            critique: critique
+        Critique the short term plan.
+        
+        Args:
+            short_term_plan: The plan to critique
+            obs: Current observation
+            max_retries: Maximum number of retries for parsing
+            verbose: Whether to print detailed logs
+            
+        Returns:
+            next_step: Next step to take ('brain' or 'action')
+            success: Whether the plan was successful
+            critique: Critique message
         '''
-        # 1. Short-term Plan Check
+        print("\nCritiquing short-term plan...")
+        
+        # Check if we have a plan to critique
         if short_term_plan is None:
-            next_step = "brain"
-            return next_step, False, "need short-term plan"
+            print("❌ No short-term plan provided")
+            return "brain", False, "need short-term plan"
         
-        # 2. Critic
-        human_message = self.render_human_message(short_term_plan, obs)
+        try:
+            # Generate messages
+            human_message = self.render_human_message(short_term_plan, obs)
+            messages = [self.render_system_message(), human_message]
 
-        messages = [
-            self.render_system_message(),
-            human_message,
-        ]
-
-        if self.mode == 'manual':
-            success, critique = self.human_check_task_success()
-        elif self.mode == "auto":
-            success, critique = self.ai_check_task_success(
-                messages=messages, max_retries=max_retries, verbose=verbose
-            )
-        else:
-            raise ValueError(f"Invalid critic agent mode: {self.mode}")
-        
-        if success:
-            next_step = "brain"
-            self.plan_failed_count = 0
-        else:
-            next_step = "action"
-            self.plan_failed_count += 1
-            if self.plan_failed_count >= self.FAILED_TIMES_LIMIT:
+            # Get critique based on mode
+            if self.mode == 'manual':
+                success, critique = self.human_check_task_success()
+            elif self.mode == "auto":
+                success, critique = self.ai_check_task_success(
+                    messages=messages, max_retries=max_retries, verbose=verbose
+                )
+            
+            # Handle results
+            if success:
+                print("✅ Plan critique successful")
                 next_step = "brain"
-                critique = "failed"
                 self.plan_failed_count = 0
-        
-        return next_step, success, critique
+            else:
+                print("⚠️ Plan critique failed")
+                next_step = "action"
+                self.plan_failed_count += 1
+                if self.plan_failed_count >= self.FAILED_TIMES_LIMIT:
+                    print(f"❌ Plan failed {self.plan_failed_count} times, switching to brain")
+                    next_step = "brain"
+                    critique = "failed"
+                    self.plan_failed_count = 0
+            
+            if verbose:
+                print(f"Next step: {next_step}")
+                print(f"Success: {success}")
+                print(f"Critique: {critique}")
+                
+            return next_step, success, critique
+
+        except Exception as e:
+            print(f"❌ Failed to critique plan: {str(e)}")
+            raise

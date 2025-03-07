@@ -2,15 +2,19 @@
 Main memory library for the brain.
 '''
 
+import os
+
+from langchain_community.vectorstores.chroma import Chroma
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+
 from ..prompt_template import load_prompt
 from .long_term_planner import LongtermPlanner
-from .viewer import Viewer
 from .skill_manager import SkillManager
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_community.vectorstores.chroma import Chroma
+from .viewer import Viewer
+
 
 class MemoryNode:
     def __init__(self, 
@@ -36,24 +40,126 @@ class MemoryLibrary:
                  skill_retrieve_limit = 5,
                  recent_chat_retrieve_limit = 7,
                  short_term_plan_retrieve_limit = 5,
-                 model_name = 'gpt-4-turbo',
+                 deployment_name = 'gpt-4o-v2',
+                 azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT"),
+                 api_version = "2024-08-01-preview",
+                 embeddings_api_key = os.environ.get("AZURE_OPENAI_API_KEY_EMB"),
+                 embeddings_deployment_name = "text-embedding-3-large",
+                 embeddings_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT_EMB"),
+                 embeddings_api_version = "2023-05-15",
                  max_tokens = 256,
                  temperature = 0,
                  save_path:str = "memory_library",
                  load_path:str = "memory_library",
                  personality = "None",
                  bot_name = "Alex",
-                 vision = True,
-                 ):
+                 vision = True,):
         
-        # =================== memory library ===================
+        print(f"\n{'='*50}")
+        print("Initializing Memory Library...")
+        print(f"Embeddings Endpoint: {embeddings_endpoint}")
+        print(f"Embeddings Model: {embeddings_deployment_name}")
+        print(f"Embeddings API Version: {embeddings_api_version}")
+        
+        try:
+            embedding_model = AzureOpenAIEmbeddings(
+                azure_endpoint=embeddings_endpoint,
+                api_version=embeddings_api_version,
+                deployment=embeddings_deployment_name,
+                api_key=embeddings_api_key,  # Changed from azure_ad_token to api_key
+                skip_empty=True,
+            )
+            print("✅ Successfully initialized embeddings model")
+        except Exception as e:
+            print(f"❌ Failed to initialize embeddings model: {str(e)}")
+            raise
+
+        try:
+            self.skill_vectordb = Chroma(
+                collection_name="skill_vectordb",
+                embedding_function=embedding_model,
+                persist_directory=f"{save_path}/memory/skill/vectordb",
+            )
+            print("✅ Successfully initialized skill vectordb")
+        except Exception as e:
+            print(f"❌ Failed to initialize skill vectordb: {str(e)}")
+            raise
+
+        try:
+            self.chat_vectordb = Chroma(
+                collection_name="chat_vectordb",
+                embedding_function=embedding_model,
+                persist_directory=f"{save_path}/memory/chat/vectordb",
+            )
+            print("✅ Successfully initialized chat vectordb")
+        except Exception as e:
+            print(f"❌ Failed to initialize chat vectordb: {str(e)}")
+            raise
+
+        try:
+            self.events_vectordb = Chroma(
+                collection_name="events_vectordb",
+                embedding_function=embedding_model,
+                persist_directory=f"{save_path}/memory/events/vectordb",
+            )
+            print("✅ Successfully initialized events vectordb")
+        except Exception as e:
+            print(f"❌ Failed to initialize events vectordb: {str(e)}")
+            raise
+
+        try:
+            self.environment_vectordb = Chroma(
+                collection_name="environment_vectordb",
+                embedding_function=embedding_model,
+                persist_directory=f"{save_path}/memory/environment/vectordb",
+            )
+            print("✅ Successfully initialized environment vectordb")
+        except Exception as e:
+            print(f"❌ Failed to initialize environment vectordb: {str(e)}")
+            raise
+
+        # Initialize other components with correct API versions
+        self.long_term_planner = LongtermPlanner(
+            deployment_name=deployment_name,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            personality=personality,
+            vision=vision
+        )
+
+        self.viewer = Viewer(
+            deployment_name=deployment_name,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+
+        self.skill_manager = SkillManager(
+            deployment_name=deployment_name,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+
+        # Store configuration
+        self.chat_retrieve_limit = chat_retrieve_limit
+        self.event_retrieve_limit = event_retrieve_limit
+        self.environment_retrieve_limit = environment_retrieve_limit
+        self.skill_retrieve_limit = skill_retrieve_limit
+        self.recent_chat_retrieve_limit = recent_chat_retrieve_limit
+        self.short_term_plan_retrieve_limit = short_term_plan_retrieve_limit
         self.personality = personality
         self.save_path = save_path
         self.load_path = load_path
-        self.id_to_node = dict()
-        self.personality = None
         self.bot_name = bot_name
         self.vision = vision
+
+        # Initialize memory structures
+        self.id_to_node = dict()
         self.environment = []
         self.events = []
         self.chat = []
@@ -61,57 +167,8 @@ class MemoryLibrary:
         self.long_term_plan = None
         self.short_term_plan = []
 
-        # =================== conponents ===================
-        self.long_term_planner = LongtermPlanner(model_name=model_name, 
-                                                 max_tokens=max_tokens,
-                                                 temperature=temperature,
-                                                 personality=personality,
-                                                 vision=vision)
-        self.viewer = Viewer(model_name=model_name, 
-                             max_tokens=max_tokens,
-                             temperature=temperature)
-        self.skill_manager = SkillManager(model_name=model_name,
-                                          max_tokens=max_tokens,
-                                          temperature=temperature)
-        
-        # =================== vectordb retrieve limit ===================
-        self.chat_retrieve_limit = chat_retrieve_limit
-        self.event_retrieve_limit = event_retrieve_limit
-        self.environment_retrieve_limit = environment_retrieve_limit
-        self.skill_retrieve_limit = skill_retrieve_limit
-        self.recent_chat_retrieve_limit = recent_chat_retrieve_limit
-        self.short_term_plan_retrieve_limit = short_term_plan_retrieve_limit
-
-        # =================== vectordb ===================
-        self.skill_vectordb = Chroma(
-            collection_name="skill_vectordb",
-            embedding_function=OpenAIEmbeddings(),
-            persist_directory=f"{self.save_path}/memory/skill/vectordb",
-        )
-
-        self.chat_vectordb = Chroma(
-            collection_name="chat_vectordb",
-            embedding_function=OpenAIEmbeddings(),
-            persist_directory=f"{self.save_path}/memory/chat/vectordb",
-        )
-
-        self.events_vectordb = Chroma(
-            collection_name="events_vectordb",
-            embedding_function=OpenAIEmbeddings(),
-            persist_directory=f"{self.save_path}/memory/events/vectordb",
-        )
-
-        self.environment_vectordb = Chroma(
-            collection_name="environment_vectordb",
-            embedding_function=OpenAIEmbeddings(),
-            persist_directory=f"{self.save_path}/memory/environment/vectordb",
-        )
-
-        
-        # print(f"chat vectordb counts: {self.chat_vectordb._collection.count()}")
-        # print(f"skill vectordb counts: {self.skill_vectordb._collection.count()}")
-        # print(f"events vectordb counts: {self.events_vectordb._collection.count()}")
-        # print(f"environment vectordb counts: {self.environment_vectordb._collection.count()}")
+        print(f"Memory Library Initialization Complete")
+        print(f"{'='*50}\n")
 
     def perceive(self, obs, plan_is_success, critic_info, code_info, vision = False, verbose = False):
         '''
